@@ -1,0 +1,22 @@
+# Ignore massive data files
+*.csv
+*.xlsx
+PV_measurements/
+
+# Ignore massive XGBoost model files
+*.ubj
+*.pkl
+models--*
+
+# Ignore compressed export packages
+*.zip
+
+# Ignore caches and python temporary files
+__pycache__/
+*.pyc
+.cache.sqlite
+.pytest_cache/
+.DS_Store
+
+# Ignore downloaded model caches
+models/

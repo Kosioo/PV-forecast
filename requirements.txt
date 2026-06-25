@@ -1,0 +1,7 @@
+xgboost
+huggingface_hub
+pandas
+numpy
+requests
+matplotlib
+openpyxl
