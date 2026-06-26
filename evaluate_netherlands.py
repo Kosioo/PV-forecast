@@ -5,27 +5,25 @@ import numpy as np
 import xgboost as xgb
 import requests
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "open-source-quartz-solar-forecast"))
 from quartz_solar_forecast.forecasts.v2 import TryolabsSolarPowerPredictor
 
 # ================= Configuration =================
-EXCEL_FILE = "Topola1.xlsx"
-LATITUDE = 41.509238
-LONGITUDE = 23.796700
-CAPACITY_KWP = 5000.0
-TILT = 30.0  # Assumed reasonable for Bulgaria
-ORIENTATION = 180.0
-TIMEZONE = 'Europe/Sofia'
-START_DATE = "2025-06-01"
-END_DATE = "2026-06-01"
-OUTAGE_THRESHOLD_KW = CAPACITY_KWP * 0.05  # 5% of capacity
+CSV_FILE = "PV_measurements/pvoutput_data_netherlands1.csv"
+LATITUDE = 52.4150
+LONGITUDE = 5.4102
+CAPACITY_KWP = 498.42
+TILT = 18.0
+ORIENTATION = 135.0
+TIMEZONE = 'Europe/Amsterdam'
+START_DATE = "2026-01-01"
+END_DATE = "2026-06-26"
+OUTAGE_THRESHOLD_KW = CAPACITY_KWP * 0.05  # 5% of capacity (~25 kW)
 # =================================================
 
 def get_day_ahead_forecast(lat, lon, start_date, end_date):
     print(f"Fetching historical forecast from Open-Meteo for {start_date} to {end_date}...")
-    
     variables = [
         "temperature_2m", "relative_humidity_2m", "dew_point_2m", "precipitation",
         "surface_pressure", "cloud_cover", "cloud_cover_low", "cloud_cover_mid",
@@ -33,7 +31,6 @@ def get_day_ahead_forecast(lat, lon, start_date, end_date):
         "direct_radiation", "diffuse_radiation",
         "shortwave_radiation", "direct_normal_irradiance", "terrestrial_radiation"
     ]
-    
     url = f"https://historical-forecast-api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&start_date={start_date}&end_date={end_date}&hourly={','.join(variables)}&timezone=GMT"
     
     response = requests.get(url)
@@ -47,8 +44,6 @@ def get_day_ahead_forecast(lat, lon, start_date, end_date):
     df_weather['time'] = pd.to_datetime(df_weather['time'], utc=True)
     df_weather = df_weather.set_index('time')
     df_weather = df_weather.apply(pd.to_numeric, errors='coerce')
-    
-    # Interpolate empty cells
     df_weather = df_weather.interpolate(method='linear')
     return df_weather
 
@@ -66,38 +61,19 @@ def calculate_metrics(df_test, pred_col, target_col='actual_power_kw', capacity=
 
 def main():
     print("=====================================================")
-    print(f" PV-Forecast Unified Pipeline: {EXCEL_FILE}")
+    print(f" PV-Forecast Unified Pipeline: Netherlands (Snow Test)")
     print("=====================================================")
     
-    if not os.path.exists(EXCEL_FILE):
-        print(f"ERROR: {EXCEL_FILE} not found. Please place the file in the directory.")
-        return
-
-    # 1. Load Excel Data
-    print(f"Loading data from {EXCEL_FILE}...")
-    # Read the first two columns, skipping if there's an explicit header
-    df_raw = pd.read_excel(EXCEL_FILE, usecols=[0, 1])
-    df_raw.columns = ['time_str', 'capacity_mw']
-    
-    # Parse times
-    # Assuming format "1.6.2025 10:00" -> day.month.year Hour:Minute
-    print("Parsing timestamps...")
-    df_raw['time_str'] = df_raw['time_str'].astype(str).str.strip()
-    df_raw['date_local'] = pd.to_datetime(df_raw['time_str'], format='%d.%m.%Y %H:%M', errors='coerce')
+    # 1. Load CSV Data
+    print("Loading data...")
+    df_raw = pd.read_csv(CSV_FILE)
+    df_raw['time_str'] = df_raw['Date'] + " " + df_raw['Time']
+    df_raw['date_local'] = pd.to_datetime(df_raw['time_str'], format='%Y-%m-%d %H:%M', errors='coerce')
     
     # Drop rows that couldn't parse
     df_raw = df_raw.dropna(subset=['date_local'])
     
-    # Convert string MW values (with commas) to float KW
-    def parse_mw(x):
-        if isinstance(x, str):
-            x = x.replace(',', '.')
-        try:
-            return float(x) * 1000.0 # MW to kW
-        except:
-            return np.nan
-            
-    df_raw['actual_power_kw'] = df_raw['capacity_mw'].apply(parse_mw)
+    df_raw['actual_power_kw'] = pd.to_numeric(df_raw['Power (W)'], errors='coerce') / 1000.0
     df_raw = df_raw.dropna(subset=['actual_power_kw'])
     
     # Localize timezone and convert to UTC
@@ -125,8 +101,6 @@ def main():
     def prepare_features(weather_df):
         df_copy = weather_df.copy().reset_index()
         df_copy = df_copy.rename(columns={'time': 'date_utc'})
-        
-        # Convert UTC to local time for the model to extract local hour
         df_copy['date_local'] = df_copy['date_utc'].dt.tz_convert(TIMEZONE).dt.tz_localize(None)
         df_copy = df_copy.rename(columns={'date_local': 'date'})
         
@@ -159,10 +133,10 @@ def main():
     dataset_15min['date_local'] = dataset_15min['date_utc'].dt.tz_convert(TIMEZONE).dt.tz_localize(None)
     dataset_15min['day_of_year'] = dataset_15min['date_local'].dt.dayofyear
     
-    # Filter Outage Days
+    # Filter Outage Days (Snow / Maintenance)
     day_max = dataset_15min.groupby('day_of_year')['actual_power_kw'].max()
     outage_days = day_max[day_max < OUTAGE_THRESHOLD_KW].index
-    print(f"Filtered {len(outage_days)} outage/snow days (peak output < {OUTAGE_THRESHOLD_KW}kW).")
+    print(f"Filtered {len(outage_days)} outage/snow days (peak output < {OUTAGE_THRESHOLD_KW:.1f}kW).")
     dataset_15min = dataset_15min[~dataset_15min['day_of_year'].isin(outage_days)].copy()
     
     # 4. Transfer Learning Pipeline
@@ -177,24 +151,20 @@ def main():
                     'direct_radiation', 'diffuse_radiation', 'date_month', 'date_day', 'date_hour']
                     
     X_train = dataset_15min[train_mask][feature_cols]
-    y_train = dataset_15min[train_mask]['actual_power_kw'] / 1000.0 # Use MW internally to avoid scaling bugs
+    y_train = dataset_15min[train_mask]['actual_power_kw'] / 1000.0 
     
     X_test = dataset_15min[test_mask][feature_cols]
     
-    # Load Base Model
     base_model_path = os.path.join(os.path.dirname(__file__), "open-source-quartz-solar-forecast", "quartz_solar_forecast", "models", "model_10_202405.ubj")
     base_model = xgb.XGBRegressor()
     base_model.load_model(base_model_path)
     
-    # Train Residual Model
     base_preds_train = base_model.predict(X_train)
     residuals_train = y_train - base_preds_train
     
     residual_model_15 = xgb.XGBRegressor(n_estimators=150, max_depth=4, learning_rate=0.08, random_state=42)
     residual_model_15.fit(X_train, residuals_train)
     
-    # Same process for 1-Hour model to ensure perfect hourly evaluation
-    # We build the 1H training set directly from the 15m dataset by averaging
     train_1h_df = dataset_15min[train_mask].set_index('date_utc').resample('1h').mean().reset_index()
     train_1h_df = train_1h_df.dropna(subset=['actual_power_kw'])
     
@@ -210,7 +180,6 @@ def main():
     # 5. Prediction Scenarios
     print("Running predictions on hidden test set...")
     
-    # Native 15m predictions
     preds_15_base = base_model.predict(X_test)
     preds_15_res = residual_model_15.predict(X_test)
     pred_native_15 = (preds_15_base + preds_15_res) * 1000.0
@@ -220,11 +189,9 @@ def main():
     test_15_results = dataset_15min[test_mask][['date_utc', 'date_local', 'is_day', 'actual_power_kw']].copy()
     test_15_results['pred_native_15'] = pred_native_15
     
-    # Build 1H Test Dataset
     test_1h_results = test_15_results.set_index('date_utc').resample('1h').mean().reset_index()
     test_1h_results = test_1h_results.dropna(subset=['actual_power_kw'])
     
-    # Get 1H test features
     test_1h_features = dataset_15min[test_mask].set_index('date_utc').resample('1h').mean().reset_index()
     test_1h_features = test_1h_features.dropna(subset=['actual_power_kw'])
     
@@ -240,13 +207,9 @@ def main():
     pred_native_1h = np.maximum(0, pred_native_1h)
     
     test_1h_results['pred_native_1h'] = pred_native_1h
-    
-    # Scenario A (Average 15m to 1H)
     scen_a = test_15_results.set_index('date_utc').resample('1h')['pred_native_15'].mean().reset_index()
     scen_a.rename(columns={'pred_native_15': 'pred_scen_a'}, inplace=True)
-    test_1h_results = pd.merge(test_1h_results, scen_a[['date_utc', 'pred_scen_a']], on='date_utc', how='left')
-    
-    # Scenario C (Extrapolate 1H to 15m)
+    test_1h_results = pd.merge(test_1h_results, scen_a[['date_utc', 'pred_scen_a']], on='date_utc', how='left')    
     test_1h_results['temp_date'] = test_1h_results['date_utc']
     test_15_results = pd.merge_asof(test_15_results.sort_values('date_utc'), 
                                     test_1h_results[['date_utc', 'pred_native_1h']].sort_values('date_utc'),
@@ -269,8 +232,6 @@ def main():
     mae_1h_a, mae_1h_a_cap, mae_1h_a_act = calculate_metrics(test_1h_results, 'pred_scen_a')
     print(f"[Averaged 1H]  MAE: {mae_1h_a:.1f} kW | MAE% Cap: {mae_1h_a_cap:.1f}% | MAE% Act: {mae_1h_a_act:.1f}%")
     print("=====================================================================\n")
-
-    print("Pipeline Complete! All metrics generated successfully.")
 
 if __name__ == "__main__":
     main()
