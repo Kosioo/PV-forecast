@@ -1,6 +1,5 @@
 # Ignore massive data files
 *.csv
-*.xlsx
 PV_measurements/
 
 # Ignore massive XGBoost model files
