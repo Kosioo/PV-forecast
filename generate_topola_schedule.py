@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import requests
 import warnings
-from hybrid_forecaster import PVLibPhysicalModel
+import os
+from hybrid_forecaster import HybridForecaster
 warnings.filterwarnings("ignore")
 
 # ================= Configuration =================
@@ -48,6 +49,11 @@ def get_day_ahead_forecast(lat, lon, target_date_str):
     df_weather['temp_air'] = df_weather['temperature_2m']
     df_weather['wind_speed'] = df_weather['wind_speed_10m']
     
+    # Required names for ML
+    df_weather['date_month'] = df_weather.index.month
+    df_weather['date_day'] = df_weather.index.day
+    df_weather['date_hour'] = df_weather.index.hour
+    
     # Filter only for the target date
     target_date = pd.to_datetime(target_date_str).date()
     df_weather = df_weather[df_weather.index.date == target_date]
@@ -56,7 +62,7 @@ def get_day_ahead_forecast(lat, lon, target_date_str):
 
 def main():
     print("=====================================================")
-    print(" Topola (5MW) Day-Ahead Schedule (Physical Model)")
+    print(" Topola (5MW) Day-Ahead Schedule (Hybrid Model)")
     print("=====================================================")
     
     target_date_str = datetime.datetime.now().strftime('%Y-%m-%d')
@@ -65,28 +71,35 @@ def main():
     # Needs to be tz-aware for pvlib
     df_weather.index = df_weather.index.tz_localize('UTC')
     
-    # We only use Physical Model since we don't have enough Topola historical data for ML
-    physical_model = PVLibPhysicalModel(LATITUDE, LONGITUDE, CAPACITY_KWP, TILT, ORIENTATION)
+    forecaster = HybridForecaster(LATITUDE, LONGITUDE, CAPACITY_KWP, TILT, ORIENTATION)
     
-    print("Generating pure physical PV schedule...")
-    phys_pred = physical_model.predict(df_weather)
+    # Load the trained residual model if it exists
+    model_path = "topola_hybrid_model.json"
+    if os.path.exists(model_path):
+        print("Loading trained XGBoost Residual Model...")
+        forecaster.ml_model.model.load_model(model_path)
+    else:
+        print("WARNING: topola_hybrid_model.json not found! Falling back to purely Physical Model. Run evaluate_topola.py first!")
+        
+    print("Generating Hybrid PV schedule...")
+    phys_pred, ml_res, final_pred = forecaster.predict(df_weather)
     
-    df_weather['pred_kw'] = phys_pred
-    df_weather['pred_kw'] = np.maximum(0, df_weather['pred_kw'])
-    df_weather['pred_kw'] = np.where(df_weather['is_day'] == 0, 0, df_weather['pred_kw'])
+    df_weather['pred_kw'] = final_pred
+    df_weather['pred_phys'] = phys_pred
     
     # Convert index back to local Sofia time for export/plotting
     df_local = df_weather.copy()
     df_local.index = df_local.index.tz_convert(TIMEZONE)
     
-    csv_filename = f"topola_schedule_{target_date_str.replace('-','')}_physical.csv"
-    export_df = df_local[['pred_kw']].rename(columns={'pred_kw': 'Predicted_Power_kW'})
+    csv_filename = f"topola_schedule_{target_date_str.replace('-','')}_hybrid.csv"
+    export_df = df_local[['pred_phys', 'pred_kw']].rename(columns={'pred_kw': 'Predicted_Hybrid_kW', 'pred_phys': 'Predicted_Physical_kW'})
     export_df.to_csv(csv_filename)
     print(f"Schedule exported to {csv_filename}")
     
     # Plotting
     plt.figure(figsize=(12, 6))
-    plt.plot(df_local.index, df_local['pred_kw'], label='Predicted Physical Output (kW)', color='darkorange', linewidth=2.5)
+    plt.plot(df_local.index, df_local['pred_kw'], label='Predicted Hybrid Output (kW)', color='darkorange', linewidth=2.5)
+    plt.plot(df_local.index, df_local['pred_phys'], label='Physical Baseline (kW)', color='gray', linestyle='--', alpha=0.6)
     plt.fill_between(df_local.index, df_local['pred_kw'], color='orange', alpha=0.2)
     
     plt.title(f"Topola 5MW Day-Ahead Prediction - {target_date_str}", fontsize=16)
@@ -99,7 +112,7 @@ def main():
     plt.legend()
     plt.tight_layout()
     
-    png_filename = f"topola_schedule_{target_date_str.replace('-','')}_physical.png"
+    png_filename = f"topola_schedule_{target_date_str.replace('-','')}_hybrid.png"
     plt.savefig(png_filename, dpi=300)
     print(f"Plot saved to {png_filename}")
 

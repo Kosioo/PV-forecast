@@ -1,7 +1,6 @@
-xgboost
-huggingface_hub
 pandas
 numpy
+xgboost
+pvlib
 requests
 matplotlib
-openpyxl
