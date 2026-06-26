@@ -19,7 +19,7 @@ TIMEZONE = 'Europe/Sofia'
 # =================================================
 
 def get_day_ahead_forecast(lat, lon, target_date_str):
-    print(f"Fetching 14-day Open-Meteo forecast for {target_date_str}...")
+    print(f"Fetching 15-min Open-Meteo forecast for {target_date_str}...")
     variables = [
         "temperature_2m", "relative_humidity_2m", "dew_point_2m", "precipitation",
         "surface_pressure", "cloud_cover", "cloud_cover_low", "cloud_cover_mid",
@@ -49,10 +49,11 @@ def get_day_ahead_forecast(lat, lon, target_date_str):
     df_weather['temp_air'] = df_weather['temperature_2m']
     df_weather['wind_speed'] = df_weather['wind_speed_10m']
     
-    # Required names for ML
+    # Required time features for ML model
     df_weather['date_month'] = df_weather.index.month
     df_weather['date_day'] = df_weather.index.day
     df_weather['date_hour'] = df_weather.index.hour
+    df_weather['date_minute'] = df_weather.index.minute
     
     # Filter only for the target date
     target_date = pd.to_datetime(target_date_str).date()
@@ -65,6 +66,7 @@ def main():
     print(" Topola (5MW) Day-Ahead Schedule (Hybrid Model)")
     print("=====================================================")
     
+    # Use today's date dynamically
     target_date_str = datetime.datetime.now().strftime('%Y-%m-%d')
     df_weather = get_day_ahead_forecast(LATITUDE, LONGITUDE, target_date_str)
     
@@ -91,10 +93,21 @@ def main():
     df_local = df_weather.copy()
     df_local.index = df_local.index.tz_convert(TIMEZONE)
     
+    # Export CSV with both kW and MW columns  
     csv_filename = f"topola_schedule_{target_date_str.replace('-','')}_hybrid.csv"
-    export_df = df_local[['pred_phys', 'pred_kw']].rename(columns={'pred_kw': 'Predicted_Hybrid_kW', 'pred_phys': 'Predicted_Physical_kW'})
+    export_df = df_local[['pred_phys', 'pred_kw']].copy()
+    export_df = export_df.rename(columns={'pred_kw': 'Predicted_Hybrid_kW', 'pred_phys': 'Predicted_Physical_kW'})
+    export_df['Predicted_Hybrid_MW'] = export_df['Predicted_Hybrid_kW'] / 1000.0
+    export_df['Predicted_Physical_MW'] = export_df['Predicted_Physical_kW'] / 1000.0
     export_df.to_csv(csv_filename)
     print(f"Schedule exported to {csv_filename}")
+    
+    # Print summary
+    daylight = df_local[df_local['is_day'] == 1]
+    print(f"\n  Daylight intervals: {len(daylight)}")
+    print(f"  Peak hybrid prediction: {daylight['pred_kw'].max():.1f} kW ({daylight['pred_kw'].max()/1000:.2f} MW)")
+    print(f"  Peak physical prediction: {daylight['pred_phys'].max():.1f} kW ({daylight['pred_phys'].max()/1000:.2f} MW)")
+    print(f"  Daily hybrid energy: {daylight['pred_kw'].sum() * 0.25 / 1000:.2f} MWh")
     
     # Plotting
     plt.figure(figsize=(12, 6))

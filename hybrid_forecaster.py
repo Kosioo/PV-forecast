@@ -61,7 +61,7 @@ class MLResidualModel:
             'cloud_cover_high', 'wind_speed_10m', 'wind_direction_10m', 'is_day',
             'direct_radiation', 'diffuse_radiation', 'shortwave_radiation',
             'direct_normal_irradiance', 'terrestrial_radiation',
-            'date_month', 'date_day', 'date_hour'
+            'date_month', 'date_day', 'date_hour', 'date_minute'
         ]
 
     def _prepare_features(self, df):
@@ -103,6 +103,7 @@ class HybridForecaster:
         
         # Apply strict logical bounds
         final_pred = np.maximum(0, final_pred) # No negative generation
+        final_pred = np.minimum(final_pred, self.physical_model.kwp) # Cap at plant capacity
         final_pred = np.where(df_weather['is_day'] == 0, 0, final_pred) # Night is zero
         
         return phys_pred, ml_res, final_pred

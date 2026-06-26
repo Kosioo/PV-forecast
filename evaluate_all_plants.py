@@ -83,6 +83,7 @@ def get_archived_weather_15min(lat, lon, start_date, end_date):
     df_15min['date_month'] = df_15min.index.month
     df_15min['date_day'] = df_15min.index.day
     df_15min['date_hour'] = df_15min.index.hour
+    df_15min['date_minute'] = df_15min.index.minute
     
     return df_15min
 

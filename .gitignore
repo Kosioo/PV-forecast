@@ -1,21 +1,72 @@
-# Ignore massive data files
-*.csv
-PV_measurements/
-
-# Ignore massive XGBoost model files
-*.ubj
-*.pkl
-models--*
-
-# Ignore compressed export packages
-*.zip
-
-# Ignore caches and python temporary files
+# ============ Python ============
+venv/
 __pycache__/
 *.pyc
-.cache.sqlite
+*.pyo
 .pytest_cache/
-.DS_Store
 
-# Ignore downloaded model caches
-models/
+# ============ Data files ============
+# Large measurement data (downloadable separately)
+PV_measurements/
+*.csv
+
+# Excel data (proprietary company data)
+Topola1.xlsx
+
+# ============ Model artifacts ============
+# Large trained model files (regenerable by running evaluate scripts)
+*.ubj
+*.pkl
+*.zip
+topola_hybrid_model.json
+
+# ============ Generated outputs ============
+# Plots and images (regenerable by running scripts)
+*.png
+
+# Exclude specific results files from gitignore so they are tracked
+!topola_schedule_20260626_hybrid.csv
+!topola_schedule_20260626_hybrid.png
+!topola_5_random_days_plot.png
+!zero_days_list.csv
+
+# ============ OS / IDE ============
+.DS_Store
+.cache.sqlite
+Thumbs.db
+.vscode/
+.idea/
+
+# ============ Temp / debug files ============
+temp_html.html
+pypi_resp.json
+_inspect_*.py
+debug_base_scale.py
+debug_res.py
+fix_scale.py
+revert_scale.py
+test_archive.py
+test_nrel_api.py
+test_topola_parse.py
+test_xgb.py
+check_model_features.py
+fetch_oedi_data.py
+analyze_data.py
+check_zero_days.py
+evaluate_14200.py
+evaluate_intervals.py
+evaluate_netherlands.py
+evaluate_topola_base.py
+forecast_15min.py
+generate_evaluation_report.py
+generate_topola_schedule_base.py
+intraday_correction.py
+plot_sample_days.py
+plot_scenario_a_features.py
+plot_spatial_weather.py
+run_forecast.py
+run_xgb_forecast.py
+tune_model.py
+tune_model_14200.py
+validate_model.py
+validate_real_data.py
