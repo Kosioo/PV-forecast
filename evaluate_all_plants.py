@@ -41,6 +41,13 @@ PLANTS = {
 }
 
 def get_archived_weather_15min(lat, lon, start_date, end_date):
+    # Open-Meteo historical API only goes up to roughly today
+    today_str = pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d')
+    if end_date > today_str:
+        print(f"Warning: end_date {end_date} is in the future. Clamping to {today_str}")
+        end_date = today_str
+        
+    print(f"Fetching historical weather from Open-Meteo ({start_date} to {end_date})...")
     variables = [
         "temperature_2m", "relative_humidity_2m", "dew_point_2m", "precipitation",
         "surface_pressure", "cloud_cover", "cloud_cover_low", "cloud_cover_mid",

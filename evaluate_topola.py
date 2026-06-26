@@ -62,6 +62,11 @@ def parse_topola_data():
     df_15 = df_15.interpolate()
     df_15.loc[df_15['actual_power_kw'] < 0, 'actual_power_kw'] = 0
     df_15 = df_15.dropna()
+    
+    # Drop any future rows that might be in the Excel file (e.g. empty month templates)
+    now_utc = pd.Timestamp.now(tz='UTC')
+    df_15 = df_15[df_15.index <= now_utc]
+    
     return df_15
 
 def main():
