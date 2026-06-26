@@ -180,7 +180,7 @@ def main():
                     
     X_train_base = dataset_15min[train_mask][feature_cols]
     X_train_res = dataset_15min[train_mask][residual_cols]
-    y_train = dataset_15min[train_mask]['actual_power_kw'] / 1000.0 
+    y_train = dataset_15min[train_mask]['actual_power_kw'] 
     
     X_test_base = dataset_15min[test_mask][feature_cols]
     X_test_res = dataset_15min[test_mask][residual_cols]
@@ -189,7 +189,7 @@ def main():
     base_model = xgb.XGBRegressor()
     base_model.load_model(base_model_path)
     
-    base_preds_train = base_model.predict(X_train_base)
+    base_preds_train = base_model.predict(X_train_base) * CAPACITY_KWP
     residuals_train = y_train - base_preds_train
     
     residual_model_15 = xgb.XGBRegressor(n_estimators=150, max_depth=4, learning_rate=0.08, random_state=42)
@@ -200,9 +200,9 @@ def main():
     
     X_train_base_1h = train_1h_df[feature_cols]
     X_train_res_1h = train_1h_df[residual_cols]
-    y_train_1h = train_1h_df['actual_power_kw'] / 1000.0
+    y_train_1h = train_1h_df['actual_power_kw']
     
-    base_preds_train_1h = base_model.predict(X_train_base_1h)
+    base_preds_train_1h = base_model.predict(X_train_base_1h) * CAPACITY_KWP
     residuals_train_1h = y_train_1h - base_preds_train_1h
     
     residual_model_1h = xgb.XGBRegressor(n_estimators=150, max_depth=4, learning_rate=0.08, random_state=42)
@@ -214,11 +214,11 @@ def main():
     preds_15_base = base_model.predict(X_test_base)
     preds_15_res = residual_model_15.predict(X_test_res)
     
-    pred_base_only_15 = preds_15_base * 1000.0
+    pred_base_only_15 = preds_15_base * CAPACITY_KWP
     pred_base_only_15 = np.where(dataset_15min[test_mask]['is_day'] == 0, 0, pred_base_only_15)
     pred_base_only_15 = np.maximum(0, pred_base_only_15)
     
-    pred_native_15 = (preds_15_base + preds_15_res) * 1000.0
+    pred_native_15 = (preds_15_base * CAPACITY_KWP) + preds_15_res
     pred_native_15 = np.where(dataset_15min[test_mask]['is_day'] == 0, 0, pred_native_15)
     pred_native_15 = np.maximum(0, pred_native_15)
     
@@ -241,11 +241,11 @@ def main():
     preds_1h_base = base_model.predict(X_test_base_1h)
     preds_1h_res = residual_model_1h.predict(X_test_res_1h)
     
-    pred_base_only_1h = preds_1h_base * 1000.0
+    pred_base_only_1h = preds_1h_base * CAPACITY_KWP
     pred_base_only_1h = np.where(test_1h_results['is_day'] < 0.5, 0, pred_base_only_1h)
     pred_base_only_1h = np.maximum(0, pred_base_only_1h)
     
-    pred_native_1h = (preds_1h_base + preds_1h_res) * 1000.0
+    pred_native_1h = (preds_1h_base * CAPACITY_KWP) + preds_1h_res
     pred_native_1h = np.where(test_1h_results['is_day'] < 0.5, 0, pred_native_1h)
     pred_native_1h = np.maximum(0, pred_native_1h)
     

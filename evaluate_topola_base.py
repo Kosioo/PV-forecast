@@ -159,7 +159,7 @@ def main():
     # 4. Predict
     preds_15_base = base_model.predict(X_all_base)
     
-    pred_base_only_15 = preds_15_base * 1000.0
+    pred_base_only_15 = preds_15_base * CAPACITY_KWP
     pred_base_only_15 = np.where(dataset_15min['is_day'] == 0, 0, pred_base_only_15)
     pred_base_only_15 = np.maximum(0, pred_base_only_15)
     

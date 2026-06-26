@@ -99,7 +99,7 @@ def main():
     print(f"Generating 15-minute schedule for {FORECAST_DATE}...")
     preds_base = base_model.predict(X_today_base[feature_cols])
     
-    pred_base_only = preds_base * 1000.0
+    pred_base_only = preds_base * CAPACITY_KWP
     pred_base_only = np.where(df_weather_15min_today['is_day'] == 0, 0, pred_base_only)
     pred_base_only = np.maximum(0, pred_base_only)
     

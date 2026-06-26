@@ -152,13 +152,13 @@ def main():
     
     X_train_base = dataset_hist[feature_cols]
     X_train_res = dataset_hist[residual_cols]
-    y_train = dataset_hist['actual_power_kw'] / 1000.0 
+    y_train = dataset_hist['actual_power_kw'] 
     
     base_model_path = os.path.join(os.path.dirname(__file__), "open-source-quartz-solar-forecast", "quartz_solar_forecast", "models", "model_10_202405.ubj")
     base_model = xgb.XGBRegressor()
     base_model.load_model(base_model_path)
     
-    base_preds_train = base_model.predict(X_train_base)
+    base_preds_train = base_model.predict(X_train_base) * CAPACITY_KWP
     residuals_train = y_train - base_preds_train
     
     residual_model = xgb.XGBRegressor(n_estimators=150, max_depth=4, learning_rate=0.08, random_state=42)
@@ -183,11 +183,11 @@ def main():
     preds_base = base_model.predict(X_today_base[feature_cols])
     preds_res = residual_model.predict(X_today_res[residual_cols])
     
-    pred_base_only = preds_base * 1000.0
+    pred_base_only = preds_base * CAPACITY_KWP
     pred_base_only = np.where(df_weather_15min_today['is_day'] == 0, 0, pred_base_only)
     pred_base_only = np.maximum(0, pred_base_only)
     
-    pred_native = (preds_base + preds_res) * 1000.0
+    pred_native = (preds_base * CAPACITY_KWP) + preds_res
     pred_native = np.where(df_weather_15min_today['is_day'] == 0, 0, pred_native)
     pred_native = np.maximum(0, pred_native)
     
