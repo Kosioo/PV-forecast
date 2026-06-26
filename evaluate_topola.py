@@ -149,8 +149,21 @@ def main():
     dataset_15min['date_local'] = dataset_15min['date_utc'].dt.tz_convert(TIMEZONE).dt.tz_localize(None)
     dataset_15min['day_of_year'] = dataset_15min['date_local'].dt.dayofyear
     
-    # Intentionally retaining snow and outage days so the model learns from snow_depth
-    print(f"Retaining all days in dataset so the model can learn from snow_depth.")
+    # Smart Outage Filtering: Filter Maintenance but KEEP Snow Days
+    day_max_power = dataset_15min.groupby('day_of_year')['actual_power_kw'].max()
+    if 'snow_depth' in dataset_15min.columns:
+        day_max_snow = dataset_15min.groupby('day_of_year')['snow_depth'].max()
+    else:
+        day_max_snow = pd.Series(0, index=day_max_power.index)
+        
+    potential_outages = day_max_power[day_max_power < OUTAGE_THRESHOLD_KW].index
+    maintenance_days = [day for day in potential_outages if day_max_snow.get(day, 0) == 0]
+    snow_days = [day for day in potential_outages if day_max_snow.get(day, 0) > 0]
+    
+    print(f"Filtered {len(maintenance_days)} maintenance days (peak output < {OUTAGE_THRESHOLD_KW:.1f}kW, no snow).")
+    print(f"Retained {len(snow_days)} true snow days for the model to learn.")
+    
+    dataset_15min = dataset_15min[~dataset_15min['day_of_year'].isin(maintenance_days)].copy()
     
     # 4. Transfer Learning Pipeline
     print("Executing explicitly-calculated residual fine-tuning...")
