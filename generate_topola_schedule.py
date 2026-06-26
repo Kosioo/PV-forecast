@@ -183,6 +183,10 @@ def main():
     preds_base = base_model.predict(X_today_base[feature_cols])
     preds_res = residual_model.predict(X_today_res[residual_cols])
     
+    pred_base_only = preds_base * 1000.0
+    pred_base_only = np.where(df_weather_15min_today['is_day'] == 0, 0, pred_base_only)
+    pred_base_only = np.maximum(0, pred_base_only)
+    
     pred_native = (preds_base + preds_res) * 1000.0
     pred_native = np.where(df_weather_15min_today['is_day'] == 0, 0, pred_native)
     pred_native = np.maximum(0, pred_native)
@@ -190,7 +194,8 @@ def main():
     schedule_df = pd.DataFrame({
         'Date_UTC': dates_today,
         'Date_Local': dates_today.dt.tz_convert(TIMEZONE).dt.tz_localize(None),
-        'Predicted_Power_kW': np.round(pred_native, 2)
+        'Base_Model_Power_kW': np.round(pred_base_only, 2),
+        'Adjusted_Power_kW': np.round(pred_native, 2)
     })
     
     # Save CSV
@@ -200,8 +205,9 @@ def main():
     
     # 7. Plot
     plt.figure(figsize=(10, 5))
-    plt.plot(schedule_df['Date_Local'], schedule_df['Predicted_Power_kW'], color='orange', linewidth=2, label='Predicted Power (kW)')
-    plt.fill_between(schedule_df['Date_Local'], schedule_df['Predicted_Power_kW'], color='orange', alpha=0.3)
+    plt.plot(schedule_df['Date_Local'], schedule_df['Base_Model_Power_kW'], color='blue', linewidth=2, linestyle='--', label='Base Model Only')
+    plt.plot(schedule_df['Date_Local'], schedule_df['Adjusted_Power_kW'], color='orange', linewidth=2, label='Adjusted Power')
+    plt.fill_between(schedule_df['Date_Local'], schedule_df['Adjusted_Power_kW'], color='orange', alpha=0.3)
     plt.title(f"Topola 5MW Generation Schedule ({FORECAST_DATE})")
     plt.xlabel(f"Local Time ({TIMEZONE})")
     plt.ylabel("Power (kW)")

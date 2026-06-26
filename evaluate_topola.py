@@ -213,12 +213,18 @@ def main():
     
     preds_15_base = base_model.predict(X_test_base)
     preds_15_res = residual_model_15.predict(X_test_res)
+    
+    pred_base_only_15 = preds_15_base * 1000.0
+    pred_base_only_15 = np.where(dataset_15min[test_mask]['is_day'] == 0, 0, pred_base_only_15)
+    pred_base_only_15 = np.maximum(0, pred_base_only_15)
+    
     pred_native_15 = (preds_15_base + preds_15_res) * 1000.0
     pred_native_15 = np.where(dataset_15min[test_mask]['is_day'] == 0, 0, pred_native_15)
     pred_native_15 = np.maximum(0, pred_native_15)
     
     test_15_results = dataset_15min[test_mask][['date_utc', 'date_local', 'is_day', 'actual_power_kw']].copy()
     test_15_results['pred_native_15'] = pred_native_15
+    test_15_results['pred_base_only_15'] = pred_base_only_15
     
     test_1h_results = test_15_results.set_index('date_utc').resample('1h').mean().reset_index()
     test_1h_results = test_1h_results.dropna(subset=['actual_power_kw'])
@@ -234,11 +240,17 @@ def main():
     
     preds_1h_base = base_model.predict(X_test_base_1h)
     preds_1h_res = residual_model_1h.predict(X_test_res_1h)
+    
+    pred_base_only_1h = preds_1h_base * 1000.0
+    pred_base_only_1h = np.where(test_1h_results['is_day'] < 0.5, 0, pred_base_only_1h)
+    pred_base_only_1h = np.maximum(0, pred_base_only_1h)
+    
     pred_native_1h = (preds_1h_base + preds_1h_res) * 1000.0
     pred_native_1h = np.where(test_1h_results['is_day'] < 0.5, 0, pred_native_1h)
     pred_native_1h = np.maximum(0, pred_native_1h)
     
     test_1h_results['pred_native_1h'] = pred_native_1h
+    test_1h_results['pred_base_only_1h'] = pred_base_only_1h
     
     scen_a = test_15_results.set_index('date_utc').resample('1h')['pred_native_15'].mean().reset_index()
     scen_a.rename(columns={'pred_native_15': 'pred_scen_a'}, inplace=True)
@@ -253,18 +265,24 @@ def main():
     # 6. Evaluation
     print("\n================== BENCHMARK RESULTS (DAYLIGHT ONLY) ==================")
     print("--- 15-Minute Market ---")
-    mae_15_n, mae_15_n_cap, mae_15_n_act = calculate_metrics(test_15_results, 'pred_native_15')
-    print(f"[Native 15m]   MAE: {mae_15_n:.1f} kW | MAE% Cap: {mae_15_n_cap:.1f}% | MAE% Act: {mae_15_n_act:.1f}%")
+    mae_15_b, mae_15_b_cap, mae_15_b_act = calculate_metrics(test_15_results, 'pred_base_only_15')
+    print(f"[Base Model Only 15m] MAE: {mae_15_b:.1f} kW | MAE% Cap: {mae_15_b_cap:.1f}% | MAE% Act: {mae_15_b_act:.1f}%")
     
-    mae_15_c, mae_15_c_cap, mae_15_c_act = calculate_metrics(test_15_results, 'pred_scen_c')
-    print(f"[Extrap 15m]   MAE: {mae_15_c:.1f} kW | MAE% Cap: {mae_15_c_cap:.1f}% | MAE% Act: {mae_15_c_act:.1f}%")
+    mae_15_n, mae_15_n_cap, mae_15_n_act = calculate_metrics(test_15_results, 'pred_native_15')
+    print(f"[Adjusted Native 15m] MAE: {mae_15_n:.1f} kW | MAE% Cap: {mae_15_n_cap:.1f}% | MAE% Act: {mae_15_n_act:.1f}%")
+    
+    mae_15_s, mae_15_s_cap, mae_15_s_act = calculate_metrics(test_15_results, 'pred_scen_c')
+    print(f"[Adjusted Extrap 15m] MAE: {mae_15_s:.1f} kW | MAE% Cap: {mae_15_s_cap:.1f}% | MAE% Act: {mae_15_s_act:.1f}%")
     
     print("\n--- Hourly Market ---")
+    mae_1h_b, mae_1h_b_cap, mae_1h_b_act = calculate_metrics(test_1h_results, 'pred_base_only_1h')
+    print(f"[Base Model Only 1H]  MAE: {mae_1h_b:.1f} kW | MAE% Cap: {mae_1h_b_cap:.1f}% | MAE% Act: {mae_1h_b_act:.1f}%")
+    
     mae_1h_n, mae_1h_n_cap, mae_1h_n_act = calculate_metrics(test_1h_results, 'pred_native_1h')
-    print(f"[Native 1H]    MAE: {mae_1h_n:.1f} kW | MAE% Cap: {mae_1h_n_cap:.1f}% | MAE% Act: {mae_1h_n_act:.1f}%")
+    print(f"[Adjusted Native 1H]  MAE: {mae_1h_n:.1f} kW | MAE% Cap: {mae_1h_n_cap:.1f}% | MAE% Act: {mae_1h_n_act:.1f}%")
     
     mae_1h_a, mae_1h_a_cap, mae_1h_a_act = calculate_metrics(test_1h_results, 'pred_scen_a')
-    print(f"[Averaged 1H]  MAE: {mae_1h_a:.1f} kW | MAE% Cap: {mae_1h_a_cap:.1f}% | MAE% Act: {mae_1h_a_act:.1f}%")
+    print(f"[Adjusted Averaged 1H] MAE: {mae_1h_a:.1f} kW | MAE% Cap: {mae_1h_a_cap:.1f}% | MAE% Act: {mae_1h_a_act:.1f}%")
     print("=====================================================================\n")
 
 if __name__ == "__main__":
