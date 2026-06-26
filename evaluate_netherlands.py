@@ -29,7 +29,7 @@ def get_day_ahead_forecast(lat, lon, start_date, end_date):
         "surface_pressure", "cloud_cover", "cloud_cover_low", "cloud_cover_mid",
         "cloud_cover_high", "wind_speed_10m", "wind_direction_10m", "is_day",
         "direct_radiation", "diffuse_radiation",
-        "shortwave_radiation", "direct_normal_irradiance", "terrestrial_radiation"
+        "shortwave_radiation", "direct_normal_irradiance", "terrestrial_radiation", "snow_depth"
     ]
     url = f"https://historical-forecast-api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&start_date={start_date}&end_date={end_date}&hourly={','.join(variables)}&timezone=GMT"
     
@@ -121,7 +121,9 @@ def main():
         return cleaned['date_utc'], features[expected_cols]
         
     dates_15min, X_15min = prepare_features(df_weather_15min)
+    X_15min['snow_depth'] = df_weather_15min['snow_depth'].values
     dates_1h, X_1h = prepare_features(df_weather_hourly)
+    X_1h['snow_depth'] = df_weather_hourly['snow_depth'].values
     
     # Align 15min datasets
     df_15min = df_15min.reset_index()
@@ -133,11 +135,8 @@ def main():
     dataset_15min['date_local'] = dataset_15min['date_utc'].dt.tz_convert(TIMEZONE).dt.tz_localize(None)
     dataset_15min['day_of_year'] = dataset_15min['date_local'].dt.dayofyear
     
-    # Filter Outage Days (Snow / Maintenance)
-    day_max = dataset_15min.groupby('day_of_year')['actual_power_kw'].max()
-    outage_days = day_max[day_max < OUTAGE_THRESHOLD_KW].index
-    print(f"Filtered {len(outage_days)} outage/snow days (peak output < {OUTAGE_THRESHOLD_KW:.1f}kW).")
-    dataset_15min = dataset_15min[~dataset_15min['day_of_year'].isin(outage_days)].copy()
+    # Intentionally retaining snow and outage days so the model learns from snow_depth
+    print(f"Retaining all days in dataset so the model can learn from snow_depth.")
     
     # 4. Transfer Learning Pipeline
     print("Executing explicitly-calculated residual fine-tuning...")
@@ -150,38 +149,43 @@ def main():
                     'cloud_cover_high', 'wind_speed_10m', 'wind_direction_10m', 'is_day',
                     'direct_radiation', 'diffuse_radiation', 'date_month', 'date_day', 'date_hour']
                     
-    X_train = dataset_15min[train_mask][feature_cols]
+    residual_cols = feature_cols + ['snow_depth']
+                    
+    X_train_base = dataset_15min[train_mask][feature_cols]
+    X_train_res = dataset_15min[train_mask][residual_cols]
     y_train = dataset_15min[train_mask]['actual_power_kw'] / 1000.0 
     
-    X_test = dataset_15min[test_mask][feature_cols]
+    X_test_base = dataset_15min[test_mask][feature_cols]
+    X_test_res = dataset_15min[test_mask][residual_cols]
     
     base_model_path = os.path.join(os.path.dirname(__file__), "open-source-quartz-solar-forecast", "quartz_solar_forecast", "models", "model_10_202405.ubj")
     base_model = xgb.XGBRegressor()
     base_model.load_model(base_model_path)
     
-    base_preds_train = base_model.predict(X_train)
+    base_preds_train = base_model.predict(X_train_base)
     residuals_train = y_train - base_preds_train
     
     residual_model_15 = xgb.XGBRegressor(n_estimators=150, max_depth=4, learning_rate=0.08, random_state=42)
-    residual_model_15.fit(X_train, residuals_train)
+    residual_model_15.fit(X_train_res, residuals_train)
     
     train_1h_df = dataset_15min[train_mask].set_index('date_utc').resample('1h').mean().reset_index()
     train_1h_df = train_1h_df.dropna(subset=['actual_power_kw'])
     
-    X_train_1h = train_1h_df[feature_cols]
+    X_train_base_1h = train_1h_df[feature_cols]
+    X_train_res_1h = train_1h_df[residual_cols]
     y_train_1h = train_1h_df['actual_power_kw'] / 1000.0
     
-    base_preds_train_1h = base_model.predict(X_train_1h)
+    base_preds_train_1h = base_model.predict(X_train_base_1h)
     residuals_train_1h = y_train_1h - base_preds_train_1h
     
     residual_model_1h = xgb.XGBRegressor(n_estimators=150, max_depth=4, learning_rate=0.08, random_state=42)
-    residual_model_1h.fit(X_train_1h, residuals_train_1h)
+    residual_model_1h.fit(X_train_res_1h, residuals_train_1h)
     
     # 5. Prediction Scenarios
     print("Running predictions on hidden test set...")
     
-    preds_15_base = base_model.predict(X_test)
-    preds_15_res = residual_model_15.predict(X_test)
+    preds_15_base = base_model.predict(X_test_base)
+    preds_15_res = residual_model_15.predict(X_test_res)
     pred_native_15 = (preds_15_base + preds_15_res) * 1000.0
     pred_native_15 = np.where(dataset_15min[test_mask]['is_day'] == 0, 0, pred_native_15)
     pred_native_15 = np.maximum(0, pred_native_15)
@@ -198,10 +202,11 @@ def main():
     if 'is_day' not in test_1h_results.columns:
         test_1h_results['is_day'] = test_1h_features['is_day'].values
         
-    X_test_1h = test_1h_features[feature_cols]
+    X_test_base_1h = test_1h_features[feature_cols]
+    X_test_res_1h = test_1h_features[residual_cols]
     
-    preds_1h_base = base_model.predict(X_test_1h)
-    preds_1h_res = residual_model_1h.predict(X_test_1h)
+    preds_1h_base = base_model.predict(X_test_base_1h)
+    preds_1h_res = residual_model_1h.predict(X_test_res_1h)
     pred_native_1h = (preds_1h_base + preds_1h_res) * 1000.0
     pred_native_1h = np.where(test_1h_results['is_day'] < 0.5, 0, pred_native_1h)
     pred_native_1h = np.maximum(0, pred_native_1h)
