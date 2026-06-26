@@ -29,6 +29,9 @@ topola_hybrid_model.json
 !topola_schedule_20260626_hybrid.png
 !topola_5_random_days_plot.png
 !zero_days_list.csv
+!topola_prediction_20260617_15min.csv
+!topola_prediction_20260617_1h.csv
+!topola_prediction_20260617.png
 
 # ============ OS / IDE ============
 .DS_Store
